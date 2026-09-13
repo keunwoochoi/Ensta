@@ -6,7 +6,7 @@ from json import JSONDecodeError
 from .containers.Profile import Profile
 from .containers.ProfileHost import ProfileHost
 from .lib.Exceptions import APIError, NetworkError, RateLimitedError
-from .lib.WebHeaders import USER_AGENT, IG_APP_ID, ASBD_ID, api_headers, client_hints, describe_response
+from .lib.WebHeaders import USER_AGENT, IG_APP_ID, ASBD_ID, api_headers, client_hints, csrf_token_from, describe_response
 from collections.abc import Generator
 from .containers.Post import Post
 from .containers.PostUser import PostUser
@@ -76,6 +76,9 @@ class Guest:
     def profile(self, username: str, __session__: requests.Session | None = None) -> Profile | ProfileHost | None:
         username: str = username.replace(" ", "").lower()
 
+        session: requests.Session = __session__
+        if __session__ is None: session: requests.Session = self.request_session
+
         request_headers: dict = {
             "accept": "*/*",
             "accept-language": "en-US,en;q=0.9",
@@ -86,16 +89,13 @@ class Guest:
             "sec-fetch-site": "same-origin",
             "viewport-width": "1475",
             "x-asbd-id": ASBD_ID,
-            "x-csrftoken": self.csrf_token,
+            "x-csrftoken": csrf_token_from(session, self.csrf_token),
             "x-ig-app-id": self.insta_app_id,
-            "x-ig-www-claim": "0",
+            "x-ig-www-claim": self.x_ig_www_claim,
             "x-requested-with": "XMLHttpRequest",
             "Referer": f"https://www.instagram.com/{username}/",
             "Referrer-Policy": "strict-origin-when-cross-origin"
         }
-
-        session: requests.Session = __session__
-        if __session__ is None: session: requests.Session = self.request_session
 
         http_response: requests.Response = session.get(
             f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}",
@@ -182,7 +182,7 @@ class Guest:
                         except KeyError:
                             raise APIError()
         except JSONDecodeError:
-            raise NetworkError("HTTP Response is not a valid JSON.")
+            raise NetworkError("HTTP Response is not a valid JSON. " + describe_response(http_response))
 
     def get_uid(self, username: str, __session__: requests.Session | None = None) -> str | None:
         username: str = username.strip().lower().replace(" ", "")
@@ -259,7 +259,7 @@ class Guest:
                     count_text = count
 
                 request_headers = api_headers(
-                    csrf_token=session.cookies.get("csrftoken", self.csrf_token),
+                    csrf_token=csrf_token_from(session, self.csrf_token),
                     www_claim=self.x_ig_www_claim,
                     referer=f"https://www.instagram.com/{username}/",
                 )

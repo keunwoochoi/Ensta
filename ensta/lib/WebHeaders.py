@@ -61,6 +61,23 @@ def api_headers(csrf_token: str, www_claim: str, referer: str) -> dict[str, str]
     }
 
 
+def csrf_token_from(session, fallback: str) -> str:
+    """Return the csrftoken Instagram set on this session, preferring the
+    instagram.com-scoped cookie over any placeholder set without a domain.
+
+    ``RequestsCookieJar.get`` raises ``CookieConflictError`` once both exist,
+    which happens after the first real Instagram response."""
+
+    placeholder = None
+    for cookie in session.cookies:
+        if cookie.name != "csrftoken":
+            continue
+        if "instagram.com" in (cookie.domain or ""):
+            return cookie.value
+        placeholder = cookie.value
+    return placeholder or fallback
+
+
 def describe_response(response) -> str:
     """Short, loggable description of an unexpected Instagram response."""
 
