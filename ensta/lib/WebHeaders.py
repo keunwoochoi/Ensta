@@ -19,6 +19,16 @@ IG_APP_ID: str = "936619743392459"
 ASBD_ID: str = "198387"
 
 
+# Persisted GraphQL query id for the profile timeline ("PolarisProfilePostsQuery"),
+# as used by the Instagram web app for logged-in viewers. Instagram retires
+# these occasionally (7898261790222653 stopped working in 2026); when it does,
+# the request answers with an "execution error" payload instead of the timeline
+# connection and the exception says so.
+PROFILE_POSTS_DOC_ID: str = "34579740524958711"
+PROFILE_POSTS_FRIENDLY_NAME: str = "PolarisProfilePostsQuery"
+PROFILE_POSTS_CONNECTION: str = "xdt_api__v1__feed__user_timeline_graphql_connection"
+
+
 def client_hints() -> dict[str, str]:
     """Return the ``sec-ch-ua*`` client hint headers matching ``USER_AGENT``."""
 

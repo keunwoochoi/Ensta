@@ -27,7 +27,7 @@ class Guest:
         self.request_session = requests.Session()
         self.request_session.headers["user-agent"] = self.user_agent
         self.csrf_token = "".join(random.choices(string.ascii_letters + string.digits, k=32))
-        self.request_session.cookies.set("csrftoken", self.csrf_token)
+        self.request_session.cookies.set("csrftoken", self.csrf_token, domain=".instagram.com", path="/")
 
         if proxy is not None: self.request_session.proxies.update(proxy)
 

@@ -25,13 +25,17 @@ from .lib import (
     IdentifierError,
     DevelopmentError,
     APIError,
-    ConversionError
+    ConversionError,
+    RateLimitedError
 )
 from PIL import Image
 from ensta.lib.Searcher import create_search_obj, search_comments
 from urllib.parse import urlparse, parse_qs
 from .Utils import time_id, fb_uploader
-from .lib.WebHeaders import USER_AGENT, IG_APP_ID, ASBD_ID, client_hints
+from .lib.WebHeaders import (
+    USER_AGENT, IG_APP_ID, ASBD_ID, PROFILE_POSTS_DOC_ID, PROFILE_POSTS_CONNECTION,
+    client_hints, csrf_token_from, describe_response,
+)
 from pyquery import PyQuery
 
 USERNAME, UID = 0, 1
@@ -102,12 +106,21 @@ class WebSession:
         self.username = session_data_json.get("username")
         self.identifier = session_data_json.get("identifier")
 
-        self.request_session.cookies.set("sessionid", session_data_json.get("session_id"))
-        self.request_session.cookies.set("rur", session_data_json.get("rur"))
-        self.request_session.cookies.set("mid", session_data_json.get("mid"))
-        self.request_session.cookies.set("ds_user_id", session_data_json.get("user_id"))
-        self.request_session.cookies.set("ig_did", session_data_json.get("ig_did"))
-        self.request_session.cookies.set("csrftoken", self.csrf_token)
+        # Scope the cookies to .instagram.com exactly as the browser holds them.
+        # Set without a domain, they would linger next to the fresh
+        # domain-scoped copies Instagram sends back, and every later request
+        # would carry two "sessionid"/"csrftoken"/... cookies — which Instagram
+        # answers with a redirect to the home page or an HTML app shell.
+        for name, value in (
+            ("sessionid", session_data_json.get("session_id")),
+            ("rur", session_data_json.get("rur")),
+            ("mid", session_data_json.get("mid")),
+            ("ds_user_id", session_data_json.get("user_id")),
+            ("ig_did", session_data_json.get("ig_did")),
+            ("csrftoken", self.csrf_token),
+        ):
+            if value is not None:
+                self.request_session.cookies.set(name, value, domain=".instagram.com", path="/")
 
         if not skip_auth_verification and not self.authenticated():
             raise SessionError(
@@ -602,16 +615,110 @@ class WebSession:
 
         return self.guest.get_uid(username, __session__=self.request_session)
 
-    def posts(self, username: str, count: int = 0, user_id: str | int | None = None) -> Generator[Post, None, None]:
+    def posts(
+        self,
+        username: str,
+        count: int = 0,
+        user_id: str | int | None = None,
+        doc_id: str = PROFILE_POSTS_DOC_ID,
+    ) -> Generator[Post, None, None]:
         """
         Generates a list of target's posts of specified size.
+
+        Logged-in sessions use the GraphQL profile-timeline query the Instagram
+        web app itself issues; the older /api/v1/feed/user/ REST endpoint now
+        redirects logged-in sessions to the home page.
+
         :param username: Target's Username
-        :param count: Amount of posts to fetch
-        :param user_id: (Optional) Target's UserID; uses the numeric feed endpoint when given
+        :param count: Amount of posts to fetch (0 = all)
+        :param user_id: Unused for logged-in sessions; kept for signature compatibility with Guest.posts
+        :param doc_id: (Optional) Override the persisted GraphQL query id
         :return: Generator which yields each post's data
         """
 
-        return self.guest.posts(username, count, __session__=self.request_session, user_id=user_id)
+        username = username.replace(" ", "").lower()
+        page_size = 12
+        generated = 0
+        cursor: str | None = None
+
+        while True:
+            variables = {
+                "data": {
+                    "count": page_size,
+                    "include_relationship_info": True,
+                    "latest_besties_reel_media": True,
+                    "latest_reel_media": True,
+                },
+                "username": username,
+            }
+            if cursor:
+                variables["after"] = cursor
+                variables["first"] = page_size
+
+            # Deliberately minimal: this is the request shape that Instagram
+            # answers with JSON. Adding the web app's own markers (x-fb-friendly-name,
+            # fb_api_req_friendly_name, x-ig-www-claim, sec-fetch-*, ...) without the
+            # per-page LSD/DTSG tokens makes Instagram answer with the HTML app
+            # shell instead.
+            headers = {
+                "accept": "*/*",
+                "accept-language": "en-US,en;q=0.8",
+                "x-ig-app-id": self.insta_app_id,
+                "x-csrftoken": csrf_token_from(self.request_session, self.csrf_token),
+                "referer": f"https://www.instagram.com/{username}/",
+            }
+
+            http_response = self.request_session.post(
+                "https://www.instagram.com/graphql/query",
+                data={
+                    "variables": json.dumps(variables, separators=(",", ":")),
+                    "doc_id": doc_id,
+                    "server_timestamps": "true",
+                },
+                headers=headers,
+                allow_redirects=False,
+            )
+
+            if http_response.status_code in (301, 302, 303, 307, 308):
+                yield None
+                raise RateLimitedError(
+                    "Instagram redirected the timeline query to "
+                    f"{http_response.headers.get('location', '?')} — the session is being login-walled. "
+                    + describe_response(http_response)
+                )
+
+            try:
+                payload = http_response.json()
+            except JSONDecodeError:
+                yield None
+                raise NetworkError("Timeline query did not return JSON. " + describe_response(http_response))
+
+            if http_response.status_code in (401, 403, 429) or payload.get("require_login"):
+                yield None
+                raise RateLimitedError("Instagram refused the timeline query. " + describe_response(http_response))
+
+            connection = (payload.get("data") or {}).get(PROFILE_POSTS_CONNECTION)
+            if not isinstance(connection, dict) or "edges" not in connection:
+                yield None
+                errors = "; ".join(str(e.get("message", e)) for e in payload.get("errors", []) if isinstance(e, dict))
+                raise NetworkError(
+                    f"Timeline query returned no '{PROFILE_POSTS_CONNECTION}' (doc_id {doc_id} may be retired). "
+                    f"errors: {errors or 'none'}. " + describe_response(http_response)
+                )
+
+            for edge in connection["edges"]:
+                node = edge.get("node") if isinstance(edge, dict) else None
+                if not node:
+                    continue
+                if count and generated >= count:
+                    return None
+                yield self.guest._Guest__process_post_data(node)
+                generated += 1
+
+            page_info = connection.get("page_info") or {}
+            if (count and generated >= count) or not page_info.get("has_next_page") or not page_info.get("end_cursor"):
+                return None
+            cursor = page_info["end_cursor"]
 
     def get_raw_post(self, share_url: str) -> str:
         share_url: str = share_url.strip()
