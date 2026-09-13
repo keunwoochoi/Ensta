@@ -31,6 +31,7 @@ from PIL import Image
 from ensta.lib.Searcher import create_search_obj, search_comments
 from urllib.parse import urlparse, parse_qs
 from .Utils import time_id, fb_uploader
+from .lib.WebHeaders import USER_AGENT, IG_APP_ID, ASBD_ID, client_hints
 from pyquery import PyQuery
 
 USERNAME, UID = 0, 1
@@ -61,16 +62,15 @@ class WebSession:
 
     session_data: str
     request_session: requests.Session
-    insta_app_id: str = "936619743392459"
+    insta_app_id: str = IG_APP_ID
     preferred_color_scheme: str = "dark"
-    x_ig_www_claim: str
+    x_ig_www_claim: str = "0"
     csrf_token: str
     guest: Guest
     user_id: str
     username: str
     identifier: str
-    user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " \
-                      "(KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+    user_agent: str = USER_AGENT
     private_user_agent: str = "Instagram 269.0.0.18.75 Android (26/8.0.0; 480dpi; 1080x1920; " \
                               "OnePlus; 6T Dev; devitron; qcom; en_US; 314665256)"
     media_resolver: MediaResolver = None
@@ -84,16 +84,19 @@ class WebSession:
     ) -> None:
 
         self.session_data = session_data
-        self.x_ig_www_claim = "hmac." + "".join(random.choices(string.ascii_letters + string.digits + "_-", k=48))
         self.csrf_token = "".join(random.choices(string.ascii_letters + string.digits, k=32))
         self.request_session = requests.Session()
         self.request_session.headers["user-agent"] = self.user_agent
+        # Instagram hands out the real www-claim on any authenticated response;
+        # remember it so subsequent requests look like the same browser tab.
+        self.request_session.hooks["response"].append(self._remember_www_claim)
 
         if proxy is not None: self.request_session.proxies.update(proxy)
 
         session_data_json: dict = json.loads(session_data)
 
         self.guest = Guest(proxy=proxy)
+        self.guest.x_ig_www_claim = self.x_ig_www_claim
 
         self.user_id = session_data_json.get("user_id")
         self.username = session_data_json.get("username")
@@ -113,6 +116,12 @@ class WebSession:
         
         self.media_resolver = media_resolver if media_resolver is not None else MediaResolver()
 
+    def _remember_www_claim(self, response: requests.Response, *args, **kwargs) -> None:
+        claim = response.headers.get("x-ig-set-www-claim")
+        if claim:
+            self.x_ig_www_claim = claim
+            self.guest.x_ig_www_claim = claim
+
     def authenticated(self) -> bool:
         """
         Returns whether user is logged in or not.
@@ -124,16 +133,12 @@ class WebSession:
             "accept": "*/*",
             "accept-language": "en-US,en;q=0.9",
             "sec-ch-prefers-color-scheme": self.preferred_color_scheme,
-            "sec-ch-ua": self.user_agent,
-            "sec-ch-ua-full-version-list": self.user_agent,
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": "\"Windows\"",
-            "sec-ch-ua-platform-version": "\"15.0.0\"",
+            **client_hints(),
             "sec-fetch-dest": "empty",
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "same-origin",
             "viewport-width": "1475",
-            "x-asbd-id": "198387",
+            "x-asbd-id": ASBD_ID,
             "x-csrftoken": self.csrf_token,
             "x-ig-app-id": self.insta_app_id,
             "x-ig-www-claim": self.x_ig_www_claim,
@@ -173,16 +178,12 @@ class WebSession:
             "accept-language": "en-US,en;q=0.9",
             "content-type": "application/x-www-form-urlencoded",
             "sec-ch-prefers-color-scheme": self.preferred_color_scheme,
-            "sec-ch-ua": self.user_agent,
-            "sec-ch-ua-full-version-list": self.user_agent,
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": "\"Windows\"",
-            "sec-ch-ua-platform-version": "\"15.0.0\"",
+            **client_hints(),
             "sec-fetch-dest": "empty",
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "same-origin",
             "viewport-width": "1475",
-            "x-asbd-id": "198387",
+            "x-asbd-id": ASBD_ID,
             "x-csrftoken": self.csrf_token,
             "x-ig-app-id": self.insta_app_id,
             "x-ig-www-claim": self.x_ig_www_claim,
@@ -248,16 +249,12 @@ class WebSession:
             "accept-language": "en-US,en;q=0.9",
             "content-type": "application/x-www-form-urlencoded",
             "sec-ch-prefers-color-scheme": self.preferred_color_scheme,
-            "sec-ch-ua": self.user_agent,
-            "sec-ch-ua-full-version-list": self.user_agent,
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": "\"Windows\"",
-            "sec-ch-ua-platform-version": "\"15.0.0\"",
+            **client_hints(),
             "sec-fetch-dest": "empty",
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "same-origin",
             "viewport-width": "1475",
-            "x-asbd-id": "198387",
+            "x-asbd-id": ASBD_ID,
             "x-csrftoken": self.csrf_token,
             "x-ig-app-id": self.insta_app_id,
             "x-ig-www-claim": self.x_ig_www_claim,
@@ -316,16 +313,12 @@ class WebSession:
             "accept": "*/*",
             "accept-language": "en-US,en;q=0.9",
             "sec-ch-prefers-color-scheme": self.preferred_color_scheme,
-            "sec-ch-ua": self.user_agent,
-            "sec-ch-ua-full-version-list": self.user_agent,
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": "\"Windows\"",
-            "sec-ch-ua-platform-version": "\"15.0.0\"",
+            **client_hints(),
             "sec-fetch-dest": "empty",
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "same-origin",
             "viewport-width": "1475",
-            "x-asbd-id": "198387",
+            "x-asbd-id": ASBD_ID,
             "x-csrftoken": self.csrf_token,
             "x-ig-app-id": self.insta_app_id,
             "x-ig-www-claim": self.x_ig_www_claim,
@@ -411,16 +404,12 @@ class WebSession:
             "accept": "*/*",
             "accept-language": "en-US,en;q=0.9",
             "sec-ch-prefers-color-scheme": self.preferred_color_scheme,
-            "sec-ch-ua": self.user_agent,
-            "sec-ch-ua-full-version-list": self.user_agent,
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": "\"Windows\"",
-            "sec-ch-ua-platform-version": "\"15.0.0\"",
+            **client_hints(),
             "sec-fetch-dest": "empty",
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "same-origin",
             "viewport-width": "1475",
-            "x-asbd-id": "198387",
+            "x-asbd-id": ASBD_ID,
             "x-csrftoken": self.csrf_token,
             "x-ig-app-id": self.insta_app_id,
             "x-ig-www-claim": self.x_ig_www_claim,
@@ -537,16 +526,12 @@ class WebSession:
             "accept-language": "en-US,en;q=0.9",
             "content-type": "application/x-www-form-urlencoded",
             "sec-ch-prefers-color-scheme": self.preferred_color_scheme,
-            "sec-ch-ua": self.user_agent,
-            "sec-ch-ua-full-version-list": self.user_agent,
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": "\"Windows\"",
-            "sec-ch-ua-platform-version": "\"15.0.0\"",
+            **client_hints(),
             "sec-fetch-dest": "empty",
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "same-origin",
             "viewport-width": "1475",
-            "x-asbd-id": "198387",
+            "x-asbd-id": ASBD_ID,
             "x-csrftoken": self.csrf_token,
             "x-ig-app-id": self.insta_app_id,
             "x-ig-www-claim": self.x_ig_www_claim,
@@ -617,15 +602,16 @@ class WebSession:
 
         return self.guest.get_uid(username, __session__=self.request_session)
 
-    def posts(self, username: str, count: int = 0) -> Generator[Post, None, None]:
+    def posts(self, username: str, count: int = 0, user_id: str | int | None = None) -> Generator[Post, None, None]:
         """
         Generates a list of target's posts of specified size.
         :param username: Target's Username
         :param count: Amount of posts to fetch
+        :param user_id: (Optional) Target's UserID; uses the numeric feed endpoint when given
         :return: Generator which yields each post's data
         """
 
-        return self.guest.posts(username, count, __session__=self.request_session)
+        return self.guest.posts(username, count, __session__=self.request_session, user_id=user_id)
 
     def get_raw_post(self, share_url: str) -> str:
         share_url: str = share_url.strip()
@@ -636,11 +622,7 @@ class WebSession:
             "accept-language": "en-US,en;q=0.9",
             "cache-control": "max-age=0",
             "sec-ch-prefers-color-scheme": "dark",
-            "sec-ch-ua": self.user_agent,
-            "sec-ch-ua-full-version-list": self.user_agent,
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": "\"Windows\"",
-            "sec-ch-ua-platform-version": "\"15.0.0\"",
+            **client_hints(),
             "sec-fetch-dest": "document",
             "sec-fetch-mode": "navigate",
             "sec-fetch-site": "same-origin",
@@ -711,14 +693,9 @@ class WebSession:
             "accept": "*/*",
             "dpr": "1.30208",
             "sec-ch-prefers-color-scheme": "dark",
-            "sec-ch-ua": self.user_agent,
-            "sec-ch-ua-full-version-list": self.user_agent,
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-model": "\"\"",
-            "sec-ch-ua-platform": "\"Windows\"",
-            "sec-ch-ua-platform-version": "\"15.0.0\"",
+            **client_hints(),
             "viewport-width": "1475",
-            "x-asbd-id": "129477",
+            "x-asbd-id": ASBD_ID,
             "x-csrftoken": self.csrf_token,
             "x-ig-app-id": self.insta_app_id,
             "x-ig-www-claim": self.x_ig_www_claim,
@@ -780,14 +757,9 @@ class WebSession:
             "content-type": "application/x-www-form-urlencoded",
             "dpr": "1.30208",
             "sec-ch-prefers-color-scheme": "dark",
-            "sec-ch-ua": self.user_agent,
-            "sec-ch-ua-full-version-list": self.user_agent,
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-model": "\"\"",
-            "sec-ch-ua-platform": "\"Windows\"",
-            "sec-ch-ua-platform-version": "\"15.0.0\"",
+            **client_hints(),
             "viewport-width": "1475",
-            "x-asbd-id": "129477",
+            "x-asbd-id": ASBD_ID,
             "x-csrftoken": self.csrf_token,
             "x-ig-app-id": self.insta_app_id,
             "x-ig-www-claim": self.x_ig_www_claim,
@@ -838,14 +810,9 @@ class WebSession:
             "content-type": "application/x-www-form-urlencoded",
             "dpr": "1.30208",
             "sec-ch-prefers-color-scheme": "dark",
-            "sec-ch-ua": self.user_agent,
-            "sec-ch-ua-full-version-list": self.user_agent,
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-model": "\"\"",
-            "sec-ch-ua-platform": "\"Windows\"",
-            "sec-ch-ua-platform-version": "\"15.0.0\"",
+            **client_hints(),
             "viewport-width": "1475",
-            "x-asbd-id": "129477",
+            "x-asbd-id": ASBD_ID,
             "x-csrftoken": self.csrf_token,
             "x-ig-app-id": self.insta_app_id,
             "x-ig-www-claim": self.x_ig_www_claim,
@@ -1037,17 +1004,12 @@ class WebSession:
             "content-type": "application/x-www-form-urlencoded",
             "dpr": "1.30208",
             "sec-ch-prefers-color-scheme": "dark",
-            "sec-ch-ua": self.user_agent,
-            "sec-ch-ua-full-version-list": self.user_agent,
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-model": "\"\"",
-            "sec-ch-ua-platform": "\"Windows\"",
-            "sec-ch-ua-platform-version": "\"15.0.0\"",
+            **client_hints(),
             "sec-fetch-dest": "empty",
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "same-origin",
             "viewport-width": "1475",
-            "x-asbd-id": "129477",
+            "x-asbd-id": ASBD_ID,
             "x-csrftoken": self.csrf_token,
             "x-ig-app-id": self.insta_app_id,
             "x-ig-www-claim": self.x_ig_www_claim,
@@ -1111,17 +1073,12 @@ class WebSession:
             "content-type": "application/x-www-form-urlencoded",
             "dpr": "1.30208",
             "sec-ch-prefers-color-scheme": "dark",
-            "sec-ch-ua": self.user_agent,
-            "sec-ch-ua-full-version-list": self.user_agent,
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-model": "\"\"",
-            "sec-ch-ua-platform": "\"Windows\"",
-            "sec-ch-ua-platform-version": "\"15.0.0\"",
+            **client_hints(),
             "sec-fetch-dest": "empty",
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "same-origin",
             "viewport-width": "1475",
-            "x-asbd-id": "129477",
+            "x-asbd-id": ASBD_ID,
             "x-csrftoken": self.csrf_token,
             "x-ig-app-id": self.insta_app_id,
             "x-ig-www-claim": self.x_ig_www_claim,
@@ -1183,17 +1140,12 @@ class WebSession:
             "content-type": "application/x-www-form-urlencoded",
             "dpr": "1.30208",
             "sec-ch-prefers-color-scheme": "dark",
-            "sec-ch-ua": self.user_agent,
-            "sec-ch-ua-full-version-list": self.user_agent,
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-model": "\"\"",
-            "sec-ch-ua-platform": "\"Windows\"",
-            "sec-ch-ua-platform-version": "\"15.0.0\"",
+            **client_hints(),
             "sec-fetch-dest": "empty",
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "same-origin",
             "viewport-width": "1475",
-            "x-asbd-id": "129477",
+            "x-asbd-id": ASBD_ID,
             "x-csrftoken": self.csrf_token,
             "x-ig-app-id": self.insta_app_id,
             "x-ig-www-claim": self.x_ig_www_claim,
@@ -1255,7 +1207,7 @@ class WebSession:
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "same-origin",
             "viewport-width": "1475",
-            "x-asbd-id": "129477",
+            "x-asbd-id": ASBD_ID,
             "x-csrftoken": self.csrf_token,
             "x-ig-app-id": self.insta_app_id,
             "x-ig-www-claim": self.x_ig_www_claim,
@@ -1297,7 +1249,7 @@ class WebSession:
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "same-origin",
             "viewport-width": "1475",
-            "x-asbd-id": "129477",
+            "x-asbd-id": ASBD_ID,
             "x-csrftoken": self.csrf_token,
             "x-ig-app-id": self.insta_app_id,
             "x-ig-www-claim": self.x_ig_www_claim,
@@ -1361,7 +1313,7 @@ class WebSession:
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "same-origin",
             "viewport-width": "1475",
-            "x-asbd-id": "129477",
+            "x-asbd-id": ASBD_ID,
             "x-csrftoken": self.csrf_token,
             "x-ig-app-id": self.insta_app_id,
             "x-ig-www-claim": self.x_ig_www_claim,

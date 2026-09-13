@@ -1,0 +1,68 @@
+"""Browser identity headers shared by the web (www.instagram.com) clients.
+
+Instagram validates that the ``user-agent`` and the ``sec-ch-ua*`` client
+hints describe the same browser. The values below must therefore be kept in
+sync with each other; bump ``CHROME_MAJOR`` to move to a newer Chrome.
+"""
+
+CHROME_MAJOR: str = "140"
+
+USER_AGENT: str = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    f"(KHTML, like Gecko) Chrome/{CHROME_MAJOR}.0.0.0 Safari/537.36"
+)
+
+# Instagram's public web app id. Unchanged for years, so it is safe to embed.
+IG_APP_ID: str = "936619743392459"
+
+# Current value sent by the Instagram web app.
+ASBD_ID: str = "198387"
+
+
+def client_hints() -> dict[str, str]:
+    """Return the ``sec-ch-ua*`` client hint headers matching ``USER_AGENT``."""
+
+    brands = (
+        f'"Chromium";v="{CHROME_MAJOR}", "Not=A?Brand";v="24", "Google Chrome";v="{CHROME_MAJOR}"'
+    )
+    full_brands = (
+        f'"Chromium";v="{CHROME_MAJOR}.0.0.0", "Not=A?Brand";v="24.0.0.0", '
+        f'"Google Chrome";v="{CHROME_MAJOR}.0.0.0"'
+    )
+    return {
+        "sec-ch-ua": brands,
+        "sec-ch-ua-full-version-list": full_brands,
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-model": '""',
+        "sec-ch-ua-platform": '"macOS"',
+        "sec-ch-ua-platform-version": '"14.0.0"',
+    }
+
+
+def api_headers(csrf_token: str, www_claim: str, referer: str) -> dict[str, str]:
+    """Return the header set the Instagram web app sends to ``/api/v1/`` endpoints."""
+
+    return {
+        "accept": "*/*",
+        "accept-language": "en-US,en;q=0.9",
+        "sec-ch-prefers-color-scheme": "dark",
+        **client_hints(),
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+        "viewport-width": "1475",
+        "x-asbd-id": ASBD_ID,
+        "x-csrftoken": csrf_token,
+        "x-ig-app-id": IG_APP_ID,
+        "x-ig-www-claim": www_claim,
+        "x-requested-with": "XMLHttpRequest",
+        "Referer": referer,
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+    }
+
+
+def describe_response(response) -> str:
+    """Short, loggable description of an unexpected Instagram response."""
+
+    body = response.text[:200].replace("\n", " ")
+    return f"HTTP {response.status_code} from {response.url}: {body!r}"
