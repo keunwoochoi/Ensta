@@ -700,10 +700,20 @@ class WebSession:
             connection = (payload.get("data") or {}).get(PROFILE_POSTS_CONNECTION)
             if not isinstance(connection, dict) or "edges" not in connection:
                 yield None
-                errors = "; ".join(str(e.get("message", e)) for e in payload.get("errors", []) if isinstance(e, dict))
+                error_items = [e for e in payload.get("errors", []) if isinstance(e, dict)]
+                descriptions = "; ".join(
+                    f"{e.get('message', '')}: {e.get('description', '')}".strip(": ") for e in error_items
+                )
+                # Instagram answers a missing/renamed/deleted account with
+                # "execution error" + description "User lookup returned null".
+                if any("user lookup returned null" in str(e.get("description", "")).lower() for e in error_items):
+                    raise IdentifierError(
+                        f"Instagram has no account '{username}' (deleted, renamed or blocked). "
+                        f"errors: {descriptions}. " + describe_response(http_response)
+                    )
                 raise NetworkError(
                     f"Timeline query returned no '{PROFILE_POSTS_CONNECTION}' (doc_id {doc_id} may be retired). "
-                    f"errors: {errors or 'none'}. " + describe_response(http_response)
+                    f"errors: {descriptions or 'none'}. " + describe_response(http_response)
                 )
 
             for edge in connection["edges"]:
